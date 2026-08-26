@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VIT Semester Result Calculator</title><link rel="stylesheet" href="style.css"></head>
+<body><header class="hero"><div><span>VIT ACADEMIC PORTAL</span><h1>Semester Result Calculator</h1><p>Prepare your semester result using MSE and ESE marks.</p></div></header>
+<main><form id="resultCalculator" novalidate>
+<section class="panel"><div class="heading"><div><b>01</b><h2>Student Details</h2></div><p>Enter the details exactly as they should appear on the result.</p></div>
+<div class="details-grid">
+<div class="field wide"><label for="name">Student Name</label><input id="name" placeholder="e.g. Suyash Rahul Moon" required><small></small></div>
+<div class="field"><label for="prn">PRN</label><input id="prn" inputmode="numeric" maxlength="10" placeholder="e.g. 12411887" required><small></small></div>
+<div class="field"><label for="branch">Branch</label><select id="branch" required><option value="">Select branch</option><option>Computer Engineering</option><option>Information Technology</option><option>Artificial Intelligence &amp; Data Science</option><option>Electronics &amp; Telecommunication</option><option>Mechanical Engineering</option></select><small></small></div>
+<div class="field"><label for="division">Division</label><select id="division" required><option value="">Select division</option><option>A</option><option>B</option><option>C</option><option>D</option><option>E</option><option>F</option><option>G</option><option>H</option></select><small></small></div>
+</div></section>
+<section class="panel"><div class="heading"><div><b>02</b><h2>Subject Marks</h2></div><p>Enter marks out of 100. Results update as you type.</p></div><div class="subjects" id="subjects"></div></section>
+<section class="panel result"><div class="heading"><div><b>03</b><h2>Semester Result</h2></div><span id="resultStatus">AWAITING MARKS</span></div><p class="student-summary" id="studentSummary">Enter student details to preview the result.</p><div class="table-wrap"><table><thead><tr><th>Subject</th><th>MSE / 30</th><th>ESE / 70</th><th>Total / 100</th><th>Grade</th></tr></thead><tbody id="resultRows"></tbody></table></div><div class="summary"><div><span>Total Marks</span><strong id="totalMarks">0.00 <em>/ 400</em></strong></div><div><span>Percentage</span><strong id="percentage">0.00%</strong></div><div><span>CGPA</span><strong id="cgpa">0.00 <em>/ 10</em></strong></div><div><span>Result</span><strong id="resultText">—</strong></div></div><div class="actions"><button type="reset" class="secondary">Clear form</button><button id="saveButton">Save Semester Result</button></div><p id="formStatus" role="status"></p></section>
+</form></main><footer>VIT Semester Result Calculator</footer><script src="script.js"></script></body></html>
