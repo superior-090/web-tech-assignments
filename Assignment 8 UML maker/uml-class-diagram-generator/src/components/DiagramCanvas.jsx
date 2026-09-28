@@ -1,0 +1,19 @@
+import { Background, BaseEdge, Controls, EdgeLabelRenderer, Handle, Position, ReactFlow, getSmoothStepPath } from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
+
+function ClassNode({ data }) {
+  const marker = (value) => ({ public: "+", protected: "#", package: "~", private: "-" }[value] || "-");
+  return <div className="uml-node"><Handle type="target" position={Position.Top} /><div className="uml-node-title">{data.name || "Unnamed"}</div><div className="uml-node-section">{data.attributes.length ? data.attributes.map((item) => <div key={item.id}>{marker(item.visibility)} {item.name} : {item.type}</div>) : <span className="muted">No attributes</span>}</div><div className="uml-node-section">{data.methods.length ? data.methods.map((item) => <div key={item.id}>{marker(item.visibility)} {item.name}({item.parameters?.map((parameter) => `${parameter.name} : ${parameter.type}`).join(", ")}) : {item.returnType}</div>) : <span className="muted">No methods</span>}</div><Handle type="source" position={Position.Bottom} /></div>;
+}
+const nodeTypes = { umlClass: ClassNode };
+function UmlRelationshipEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, style, label, selected }) {
+  const type = data?.relationshipType || "association";
+  const [edgePath, labelX, labelY] = getSmoothStepPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, borderRadius: 8 });
+  const markerId = `uml-marker-${id}`;
+  const marker = type === "inheritance" ? <marker id={markerId} markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth"><path d="M 0 0 L 11 6 L 0 12 Z" fill="#f5f2eb" stroke="#40566f" strokeWidth="1.5" /></marker> : type === "aggregation" || type === "composition" ? <marker id={markerId} markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto-start-reverse" markerUnits="strokeWidth"><path d="M 0 6 L 6 0 L 12 6 L 6 12 Z" fill={type === "composition" ? "#40566f" : "#f5f2eb"} stroke="#40566f" strokeWidth="1.5" /></marker> : type === "dependency" ? <marker id={markerId} markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth"><path d="M 1 1 L 10 6 L 1 11" fill="none" stroke="#ef8354" strokeWidth="1.5" /></marker> : null;
+  const markerPosition = type === "aggregation" || type === "composition" ? "markerStart" : "markerEnd";
+  return <><svg className="uml-marker-defs"><defs>{marker && marker}</defs></svg><BaseEdge id={id} path={edgePath} style={{ ...style, stroke: selected ? "#e36d4b" : style?.stroke, strokeWidth: selected ? 3 : style?.strokeWidth }} {...{ [markerPosition]: `url(#${markerId})` }} />{label && <EdgeLabelRenderer><div className="uml-edge-label" style={{ transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)` }}>{label}</div></EdgeLabelRenderer>}</>;
+}
+const edgeTypes = { umlRelationship: UmlRelationshipEdge };
+export default function DiagramCanvas({ nodes, edges, onNodesChange, onEdgesChange, onConnect, onSelect, onEdgeSelect, selectedId, selectedEdgeId, relationshipType, connectionStart }) { return <div className="diagram-canvas"><ReactFlow nodes={nodes.map((node) => ({ ...node, selected: node.id === selectedId }))} edges={edges.map((edge) => ({ ...edge, selected: edge.id === selectedEdgeId }))} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, node) => onSelect(node.id)} onEdgeClick={(_, edge) => onEdgeSelect(edge.id)} onPaneClick={() => { onSelect(null); onEdgeSelect(null); }} fitView><Background color="#d8e0e8" gap={24} size={1} /><Controls />{relationshipType && <div className="connection-help">{connectionStart ? "Now click the target class" : "Click the source class, then the target"}</div>}</ReactFlow></div>; }
+

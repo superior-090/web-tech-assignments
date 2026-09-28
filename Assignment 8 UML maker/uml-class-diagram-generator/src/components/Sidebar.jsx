@@ -1,0 +1,6 @@
+import { Boxes, Circle, Plus } from "lucide-react";
+const relations = [["association", "Association", "—"], ["inheritance", "Inheritance", "▷"], ["aggregation", "Aggregation", "◇"], ["composition", "Composition", "◆"], ["dependency", "Dependency", "- -▷"]];
+function Sidebar({ onAddClass, relationshipType, onRelationship, connectionStart }) { return <aside className="sidebar"><div className="eyebrow">PALETTE</div><button className="tool-button primary-tool" onClick={onAddClass}><Plus size={16} /><span>Class</span><kbd>C</kbd></button><button className="tool-button"><Circle size={16} /><span>Interface</span></button><div className="sidebar-divider" /><div className="eyebrow">RELATIONSHIPS</div>{relations.map(([value, label, symbol]) => <button className={`tool-button ${relationshipType === value ? "active" : ""}`} key={value} onClick={() => onRelationship(relationshipType === value ? null : value)}><span className={`relation-symbol relation-${value}`} aria-hidden="true">{symbol}</span><span>{label}</span></button>)}<div className="sidebar-tip"><Boxes size={17} /><span>{connectionStart ? "Target class: click it on the canvas." : "Choose a relationship, then click two classes."}</span></div></aside>; }
+
+export default Sidebar;
+
