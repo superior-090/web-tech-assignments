@@ -5,7 +5,6 @@ import Toolbar from "./components/Toolbar";
 import Sidebar from "./components/Sidebar";
 import DiagramCanvas from "./components/DiagramCanvas";
 import PropertiesPanel from "./components/PropertiesPanel";
-import CodePanel from "./components/CodePanel";
 import { generateJavaFiles, parseJavaSource } from "./generators/javaGenerator";
 
 const makeClass = (id, name, position) => ({ id, type: "umlClass", position, data: { name, attributes: [], methods: [] } });
@@ -16,6 +15,34 @@ initialNodes[1].data.methods = [{ id: "study", visibility: "public", name: "stud
 const relationshipLabels = { association: "association", inheritance: "inherits", aggregation: "aggregates", composition: "composes", dependency: "depends on" };
 const makeEdge = (id, source, target, type = "association") => ({ id, source, target, type: "umlRelationship", label: relationshipLabels[type], data: { relationshipType: type }, style: { stroke: type === "dependency" ? "#ef8354" : "#40566f", strokeWidth: 2, strokeDasharray: type === "dependency" ? "6 5" : undefined } });
 
+// Inheritance is directed from the child to its parent. Following that direction
+// from a proposed parent back to the child means the new relationship is a cycle.
+function inheritanceWouldCycle(source, target, edges) {
+  const parentsByChild = new Map();
+  edges.filter((edge) => edge.data?.relationshipType === "inheritance").forEach((edge) => {
+    parentsByChild.set(edge.source, [...(parentsByChild.get(edge.source) || []), edge.target]);
+  });
+  const pending = [target];
+  const visited = new Set();
+  while (pending.length) {
+    const current = pending.pop();
+    if (current === source) return true;
+    if (visited.has(current)) continue;
+    visited.add(current);
+    pending.push(...(parentsByChild.get(current) || []));
+  }
+  return false;
+}
+
+function relationshipIssue(source, target, type, edges) {
+  if (!source || !target || source === target) return "A class cannot be related to itself.";
+  if (edges.some((edge) => edge.source === source && edge.target === target && edge.data?.relationshipType === type)) return "That relationship already exists.";
+  if (type !== "inheritance") return "";
+  if (edges.some((edge) => edge.source === source && edge.data?.relationshipType === "inheritance")) return "A class can inherit from only one parent.";
+  if (inheritanceWouldCycle(source, target, edges)) return "This inheritance would create a cycle.";
+  return "";
+}
+
 function Editor() {
   const flow = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
@@ -24,6 +51,7 @@ function Editor() {
   const [selectedEdgeId, setSelectedEdgeId] = useState(null);
   const [connectionStart, setConnectionStart] = useState(null);
   const [relationshipType, setRelationshipType] = useState(null);
+  const [notice, setNotice] = useState("");
   const [history, setHistory] = useState([]);
   const [future, setFuture] = useState([]);
   const fileInput = useRef(null);
@@ -36,7 +64,15 @@ function Editor() {
   const deleteSelected = useCallback(() => { if (selectedEdgeId) { commit(nodes, edges.filter((edge) => edge.id !== selectedEdgeId)); setSelectedEdgeId(null); return; } if (!selectedId) return; commit(nodes.filter((node) => node.id !== selectedId), edges.filter((edge) => edge.source !== selectedId && edge.target !== selectedId)); setSelectedId(null); }, [commit, edges, nodes, selectedEdgeId, selectedId]);
   const undo = useCallback(() => { const previous = history.at(-1); if (!previous) return; setFuture((items) => [...items, snapshot()]); setHistory((items) => items.slice(0, -1)); setNodes(previous.nodes); setEdges(previous.edges); }, [history, setEdges, setNodes, snapshot]);
   const redo = useCallback(() => { const next = future.at(-1); if (!next) return; setHistory((items) => [...items, snapshot()]); setFuture((items) => items.slice(0, -1)); setNodes(next.nodes); setEdges(next.edges); }, [future, setEdges, setNodes, snapshot]);
-  const onConnect = useCallback((connection) => { if (!relationshipType || connection.source === connection.target) return; commit(nodes, addEdge(makeEdge(`rel-${Date.now()}`, connection.source, connection.target, relationshipType), edges)); setConnectionStart(null); setRelationshipType(null); }, [commit, edges, nodes, relationshipType]);
+  const onConnect = useCallback((connection) => {
+    if (!relationshipType) return;
+    const issue = relationshipIssue(connection.source, connection.target, relationshipType, edges);
+    if (issue) { setNotice(issue); setConnectionStart(null); return; }
+    commit(nodes, addEdge(makeEdge(`rel-${Date.now()}`, connection.source, connection.target, relationshipType), edges));
+    setNotice("");
+    setConnectionStart(null);
+    setRelationshipType(null);
+  }, [commit, edges, nodes, relationshipType]);
   const onNodeSelect = useCallback((nodeId) => { if (!relationshipType) { setSelectedId(nodeId); setSelectedEdgeId(null); return; } if (!connectionStart) { setConnectionStart(nodeId); setSelectedId(nodeId); return; } if (connectionStart === nodeId) { setConnectionStart(null); return; } onConnect({ source: connectionStart, target: nodeId }); }, [connectionStart, onConnect, relationshipType]);
   const selectRelationshipTool = useCallback((type) => { setRelationshipType(type); setConnectionStart(null); setSelectedEdgeId(null); }, []);
   const save = useCallback(() => { const url = URL.createObjectURL(new Blob([JSON.stringify(diagram, null, 2)], { type: "application/json" })); const link = document.createElement("a"); link.href = url; link.download = "uml-diagram.json"; link.click(); URL.revokeObjectURL(url); }, [diagram]);
@@ -55,7 +91,18 @@ function Editor() {
         const importedNodes = classes.filter((item) => item?.id).map((item, index) => ({ id: String(item.id), type: "umlClass", position: item.position || { x: 100 + (index % 3) * 250, y: 100 + Math.floor(index / 3) * 220 }, data: { name: item.name || `Class${index + 1}`, attributes: Array.isArray(item.attributes) ? item.attributes : [], methods: Array.isArray(item.methods) ? item.methods : [] } }));
         const validIds = new Set(importedNodes.map((node) => node.id));
         const importedRelationships = Array.isArray(imported.relationships) ? imported.relationships : [];
-        const importedEdges = importedRelationships.filter((item) => item?.id && validIds.has(String(item.source)) && validIds.has(String(item.target)) && item.source !== item.target).map((item) => { const edge = makeEdge(String(item.id), String(item.source), String(item.target), item.type || "association"); return { ...edge, label: item.label || edge.label }; });
+        const usedEdgeIds = new Set();
+        const importedEdges = [];
+        importedRelationships.forEach((item, index) => {
+          const source = String(item?.source || "");
+          const target = String(item?.target || "");
+          const type = item?.type || "association";
+          const id = String(item?.id || `relationship-${index + 1}`);
+          if (!validIds.has(source) || !validIds.has(target) || usedEdgeIds.has(id) || relationshipIssue(source, target, type, importedEdges)) return;
+          const edge = makeEdge(id, source, target, type);
+          importedEdges.push({ ...edge, label: item.label || edge.label });
+          usedEdgeIds.add(id);
+        });
         setNodes(importedNodes);
         setEdges(importedEdges);
         setSelectedId(importedNodes[0]?.id || null);
@@ -64,13 +111,14 @@ function Editor() {
         setRelationshipType(null);
         setHistory([]);
         setFuture([]);
+        setNotice("");
       } catch {
         window.alert("Invalid UML diagram. Load a JSON file created with Save.");
       }
     };
     reader.readAsText(file);
   };
-  const newDiagram = () => { if (nodes.length && !window.confirm("Start a new diagram? Unsaved changes will be cleared.")) return; setNodes([]); setEdges([]); setSelectedId(null); };
+  const newDiagram = () => { if (nodes.length && !window.confirm("Start a new diagram? Unsaved changes will be cleared.")) return; setNodes([]); setEdges([]); setSelectedId(null); setNotice(""); };
   useEffect(() => { const handler = (event) => { const tag = event.target.tagName; if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && tag !== "INPUT" && tag !== "TEXTAREA") { event.preventDefault(); undo(); } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") { event.preventDefault(); redo(); } else if ((event.key === "Delete" || event.key === "Backspace") && tag !== "INPUT" && tag !== "TEXTAREA") deleteSelected(); }; window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler); }, [deleteSelected, redo, undo]);
   const selected = nodes.find((node) => node.id === selectedId);
   const exportJava = () => { const file = files[0]; if (!file) return; const url = URL.createObjectURL(new Blob([file.content], { type: "text/plain" })); const link = document.createElement("a"); link.href = url; link.download = file.name; link.click(); URL.revokeObjectURL(url); };
@@ -81,11 +129,10 @@ function Editor() {
       <Sidebar onAddClass={addClass} relationshipType={relationshipType} onRelationship={selectRelationshipTool} connectionStart={connectionStart} />
       <main className="workspace">
         <Toolbar onZoomIn={() => flow.zoomIn()} onZoomOut={() => flow.zoomOut()} onFit={() => flow.fitView({ padding: 0.2 })} onUndo={undo} onRedo={redo} onDelete={deleteSelected} canUndo={history.length > 0} canRedo={future.length > 0} />
-        <DiagramCanvas nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onSelect={onNodeSelect} onEdgeSelect={(edgeId) => { setSelectedEdgeId(edgeId); setSelectedId(null); }} selectedId={selectedId} selectedEdgeId={selectedEdgeId} relationshipType={relationshipType} connectionStart={connectionStart} />
+        <DiagramCanvas nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onSelect={onNodeSelect} onEdgeSelect={(edgeId) => { setSelectedEdgeId(edgeId); setSelectedId(null); }} selectedId={selectedId} selectedEdgeId={selectedEdgeId} relationshipType={relationshipType} connectionStart={connectionStart} notice={notice} />
       </main>
       <PropertiesPanel node={selected} onUpdate={updateNode} onDelete={deleteSelected} />
     </div>
-    <CodePanel files={files} />
   </div>;
 }
 export default function App() { return <ReactFlowProvider><Editor /></ReactFlowProvider>; }
